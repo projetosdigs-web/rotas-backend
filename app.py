@@ -18,7 +18,7 @@ from passlib.context import CryptContext
 # ============================
 # 🔐 Configuração
 # ============================
-SECRET_KEY = "super-secret-chave-sistema-rotas-ferperez"
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8 horas de duração
 
