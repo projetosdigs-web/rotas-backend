@@ -1,3 +1,4 @@
+import os
 import socket
 from fastapi import FastAPI, Depends, HTTPException, status, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +16,6 @@ import schemas
 from database import engine, SessionLocal
 from passlib.context import CryptContext
 
-# ============================
-# 🔐 Configuração
-# ============================
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8 horas de duração
