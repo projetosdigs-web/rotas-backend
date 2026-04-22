@@ -19,7 +19,7 @@ security = HTTPBearer()
 def get_password_hash(password): return pwd_context.hash(password)
 def verify_password(plain, hashed): return pwd_context.verify(plain, hashed)
 
-# --- Inicialização do Banco e App ---
+# --- Inicialização ---
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Ferperez RotaCerta")
 
@@ -41,10 +41,10 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user = db.query(models.User).filter_by(username=payload.get("sub")).first()
-        if not user: raise HTTPException(401, "Usuário não encontrado")
+        if not user: raise HTTPException(401)
         return user
     except:
-        raise HTTPException(401, "Token inválido ou expirado")
+        raise HTTPException(401, "Sessão expirada. Faça login novamente.")
 
 # ============================
 # 🔐 AUTENTICAÇÃO
@@ -64,7 +64,7 @@ def login(payload: dict = Body(...), db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer"}
 
 # ============================
-# 🏙️ CIDADES, ROTAS E VEÍCULOS
+# 🏙️ LISTAGENS (SELECTS)
 # ============================
 
 @app.get("/cities/", response_model=List[schemas.CityOut])
@@ -88,70 +88,72 @@ def list_vehicles(db: Session = Depends(get_db)):
     return db.query(models.Vehicle).all()
 
 # ============================
-# 🔗 VÍNCULOS (ATENDIMENTO LOGÍSTICO)
+# 🔗 VÍNCULOS (ATENDIMENTO)
 # ============================
 
-# GET: Lista os vínculos (Essencial para o front não dar erro 405)
 @app.get("/route-city-day/")
 def list_links(db: Session = Depends(get_db)):
-    links = db.query(models.RouteCityDay).all()
-    return [{
-        "id": l.id,
-        "route_id": l.route_id,
-        "vehicle_id": l.vehicle_id,
-        "city_id": l.city_id,
-        "weekday": l.weekday,
-        "route_name": l.route.name if l.route else "Sem Rota",
-        "city_name": l.city.name if l.city else "Sem Cidade",
-        "neighborhood_name": l.neighborhood_name,
-        "vehicle_name": f"{l.vehicle.name} ({l.vehicle.plate})" if l.vehicle else "Frota Própria"
-    } for l in links]
+    try:
+        links = db.query(models.RouteCityDay).all()
+        result = []
+        for l in links:
+            # Proteção contra objetos deletados (Avoid Error 500)
+            result.append({
+                "id": l.id,
+                "route_id": l.route_id,
+                "city_id": l.city_id,
+                "weekday": l.weekday,
+                "route_name": l.route.name if l.route else "Rota N/A",
+                "city_name": l.city.name if l.city else "Cidade N/A",
+                "neighborhood_name": getattr(l, 'neighborhood_name', ""),
+                "vehicle_name": f"{l.vehicle.name} ({l.vehicle.plate})" if l.vehicle else "Frota"
+            })
+        return result
+    except Exception as e:
+        print(f"Erro ao listar: {e}")
+        return []
 
-# POST: Cria um novo vínculo
 @app.post("/route-city-day/")
 def create_link(payload: dict = Body(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    new_link = models.RouteCityDay(
-        route_id=payload.get("route_id"),
-        vehicle_id=payload.get("vehicle_id"),
-        city_id=payload.get("city_id"),
-        weekday=payload.get("weekday"),
-        neighborhood_name=payload.get("neighborhood_name")
-    )
-    db.add(new_link)
-    db.commit()
-    db.refresh(new_link)
-    return new_link
+    try:
+        new_link = models.RouteCityDay(
+            route_id=payload.get("route_id"),
+            vehicle_id=payload.get("vehicle_id"),
+            city_id=payload.get("city_id"),
+            weekday=payload.get("weekday"),
+            neighborhood_name=payload.get("neighborhood_name", "")
+        )
+        db.add(new_link)
+        db.commit()
+        db.refresh(new_link)
+        return {"status": "sucesso", "id": new_link.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Erro ao salvar vínculo. Verifique os dados.")
 
-# DELETE: Remove um atendimento
 @app.delete("/route-city-day/{link_id}/")
 def delete_link(link_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    link = db.query(models.RouteCityDay).filter_by(id=link_id).first()
-    if not link:
-        raise HTTPException(404, "Vínculo não encontrado")
-    db.delete(link)
+    db.query(models.RouteCityDay).filter_by(id=link_id).delete()
     db.commit()
-    return {"message": "Deletado com sucesso"}
+    return {"message": "Deletado"}
 
 # ============================
-# 🔎 CONSULTA PÚBLICA (VENDEDORES)
+# 🔎 CONSULTA PÚBLICA
 # ============================
 
 @app.get("/lookup-city/")
 def lookup_city(query: str, db: Session = Depends(get_db)):
-    # Busca por cidade ou por bairro (se você implementou busca por bairro)
     city = db.query(models.City).filter(models.City.name.ilike(f"%{query}%")).first()
-    
     if not city:
-        raise HTTPException(404, "Localidade não encontrada")
+        raise HTTPException(404, "Cidade não encontrada")
     
     links = db.query(models.RouteCityDay).filter_by(city_id=city.id).all()
-    
     return {
         "city": city.name,
         "routes": [{
             "route_name": l.route.name if l.route else "Rota s/ nome",
             "weekday": l.weekday,
-            "neighborhood_name": l.neighborhood_name or "Atendimento Geral",
+            "neighborhood_name": l.neighborhood_name or "Geral",
             "vehicle_name": l.vehicle.name if l.vehicle else "Frota"
         } for l in links]
     }
