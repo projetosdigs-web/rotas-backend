@@ -31,7 +31,6 @@ with engine.connect() as conn:
 
 app = FastAPI(title="Ferperez RotaCerta")
 
-# --- CORS CORRIGIDO AQUI ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -42,7 +41,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ---------------------------
 
 def get_db():
     db = SessionLocal()
@@ -117,8 +115,17 @@ def delete_link(id: int, db: Session = Depends(get_db)):
 def lookup_city(query: str, db: Session = Depends(get_db)):
     city = db.query(models.City).filter(models.City.name.ilike(f"%{query}%")).first()
     if not city: raise HTTPException(404)
+    
     links = db.query(models.RouteCityDay).filter_by(city_id=city.id).all()
+    
+    # CORREÇÃO APLICADA AQUI: Usando getattr para evitar erro 500 se o campo não existir
     return {
         "city": city.name,
-        "routes": [{"route_name": l.route.name, "weekday": l.weekday, "neighborhood_name": l.neighborhood_name} for l in links]
+        "routes": [
+            {
+                "route_name": l.route.name if l.route else "N/A", 
+                "weekday": l.weekday, 
+                "neighborhood_name": getattr(l, "neighborhood_name", "")
+            } for l in links
+        ]
     }
