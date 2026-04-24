@@ -31,13 +31,18 @@ with engine.connect() as conn:
 
 app = FastAPI(title="Ferperez RotaCerta")
 
+# --- CORS CORRIGIDO AQUI ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://rotas-frontend-alpha.vercel.app", 
+        "http://localhost:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# ---------------------------
 
 def get_db():
     db = SessionLocal()
@@ -66,7 +71,7 @@ def list_routes(db: Session = Depends(get_db)): return db.query(models.Route).al
 def list_vehicles(db: Session = Depends(get_db)): return db.query(models.Vehicle).all()
 
 # ============================
-# 🔗 VÍNCULOS (Onde estava o erro)
+# 🔗 VÍNCULOS
 # ============================
 
 @app.get("/route-city-day/")
