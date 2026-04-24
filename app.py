@@ -19,8 +19,21 @@ security = HTTPBearer()
 
 def verify_password(plain, hashed): return pwd_context.verify(plain, hashed)
 
-# --- Inicialização ---
+# --- Inicialização do Banco ---
 models.Base.metadata.create_all(bind=engine)
+
+# GARANTIR QUE O USUÁRIO ADMIN EXISTA (Para você conseguir logar)
+with SessionLocal() as db_setup:
+    try:
+        admin_user = db_setup.query(models.User).filter_by(username="admin").first()
+        if not admin_user:
+            hashed_pw = pwd_context.hash("123456")
+            new_admin = models.User(username="admin", hashed_password=hashed_pw)
+            db_setup.add(new_admin)
+            db_setup.commit()
+            print("Usuário admin padrão criado: admin / 123456")
+    except Exception as e:
+        print(f"Erro ao criar admin: {e}")
 
 # Forçar criação da coluna de bairro se ela sumiu
 with engine.connect() as conn:
@@ -31,6 +44,7 @@ with engine.connect() as conn:
 
 app = FastAPI(title="Ferperez RotaCerta")
 
+# --- Configuração de CORS (Essencial para Vercel) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -56,7 +70,12 @@ def login(payload: dict = Body(...), db: Session = Depends(get_db)):
     user = db.query(models.User).filter_by(username=payload.get("username")).first()
     if not user or not verify_password(payload.get("password"), user.hashed_password):
         raise HTTPException(400, "Dados incorretos")
-    token = jwt.encode({"sub": user.username, "exp": datetime.utcnow() + timedelta(hours=8)}, SECRET_KEY, algorithm=ALGORITHM)
+    
+    token = jwt.encode(
+        {"sub": user.username, "exp": datetime.utcnow() + timedelta(hours=8)}, 
+        SECRET_KEY, 
+        algorithm=ALGORITHM
+    )
     return {"access_token": token, "token_type": "bearer"}
 
 @app.get("/cities/", response_model=List[schemas.CityOut])
@@ -86,7 +105,7 @@ def list_links(db: Session = Depends(get_db)):
             "neighborhood_name": getattr(l, "neighborhood_name", ""),
             "vehicle_name": l.vehicle.name if l.vehicle else "Frota"
         } for l in links]
-    except: return []
+    except Exception: return []
 
 @app.post("/route-city-day/")
 def create_link(payload: dict = Body(...), db: Session = Depends(get_db)):
@@ -118,7 +137,6 @@ def lookup_city(query: str, db: Session = Depends(get_db)):
     
     links = db.query(models.RouteCityDay).filter_by(city_id=city.id).all()
     
-    # CORREÇÃO APLICADA AQUI: Usando getattr para evitar erro 500 se o campo não existir
     return {
         "city": city.name,
         "routes": [
