@@ -33,7 +33,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://rotas-frontend-alpha.vercel.app", "http://localhost:5173"],
+    # Trocamos a lista pelo "*" para aceitar qualquer origem
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
